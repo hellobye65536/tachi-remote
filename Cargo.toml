@@ -1,0 +1,44 @@
+[package]
+name = "tachi-remote"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { version = "1.0" } # , features = ["backtrace"] }
+lexopt = "0.2"
+scopeguard = "1.1"
+
+cfg-if = "1.0.0"
+
+walkdir = "2.3"
+bstr = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+infer = { version = "0.9", optional = true }
+rc-zip = { version = "0.0.1", optional = true }
+positioned-io = "0.2.2"
+# zip = { version = "0.6", optional = true }
+
+log = "0.4"
+simple_logger = "2.3"
+
+parking_lot = "0.12"
+once_cell = { version = "1.14", features = ["parking_lot"] }
+lazy_static = "1.4"
+
+futures = "0.3"
+tokio = { version = "1.20", features = ["rt", "net", "signal", "fs"] } # rt-multi-thread
+tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = { version = "0.7", features = ["io"] }
+
+bytes = "1.2.1"
+http = "0.2"
+hyper = "0.14"
+tower = "0.4"
+tower-http = { version = "0.3.4", features = ["compression-full"] }
+axum = { version = "0.5", default-features = false, features = ["http1", "http2"] }
+
+[features]
+default = ["zip", "infer"]
+zip = ["rc-zip"]
