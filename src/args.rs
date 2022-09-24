@@ -6,23 +6,27 @@ use std::{
 
 use lexopt::{Arg, Parser, ValueExt};
 
-#[rustfmt::skip]
-const HELP: &str = concat!(
-    "tachi-remote ", env!("CARGO_PKG_VERSION"), "\n",
-    "\n",
-    "USAGE:\n",
-    "    tachi-remote [options] <port> [path]\n",
-    "\n",
-    "ARGS:\n",
-    "    <port>          the port to listen on\n",
-    "    [path]          path to the library directory, defaults to the current working directory\n",
-    "\n",
-    "OPTIONS:\n",
-    "    -h, --help      print help\n",
-);
+const APP_NAME: &str = "tachi-remote";
 
-fn print_help() {
-    io::stdout().write_all(HELP.as_bytes()).unwrap();
+macro_rules! format_help {
+    ($($v:tt)*) => {
+        format_args!(
+            concat!(
+                "{app_name} ", env!("CARGO_PKG_VERSION"), "\n",
+                "\n",
+                "USAGE:\n",
+                "    {app_name} [options] <port> [path]\n",
+                "\n",
+                "ARGS:\n",
+                "    <port>          the port to listen on\n",
+                "    [path]          path to the library directory, defaults to the current working directory\n",
+                "\n",
+                "OPTIONS:\n",
+                "    -h, --help      print help\n",
+            ),
+            $($v)*
+        )
+    };
 }
 
 #[derive(Debug)]
@@ -31,25 +35,8 @@ pub struct Args {
     pub path: PathBuf,
 }
 
-impl TryFrom<ArgsPartial> for Args {
-    type Error = anyhow::Error;
-
-    fn try_from(v: ArgsPartial) -> Result<Self, Self::Error> {
-        Ok(Self {
-            port: v.port.ok_or_else(|| anyhow::anyhow!("missing port"))?,
-            path: v.path.unwrap_or_else(|| PathBuf::from(".")),
-        })
-    }
-}
-
-#[derive(Debug, Default)]
-struct ArgsPartial {
-    port: Option<u16>,
-    path: Option<PathBuf>,
-}
-
 impl Args {
-    pub fn parse_args() -> anyhow::Result<ControlFlow<(), Args>> {
+    pub fn parse_args() -> anyhow::Result<ControlFlow<(), Self>> {
         let mut args = ArgsPartial::default();
         let mut arg_index = 0usize;
 
@@ -68,18 +55,39 @@ impl Args {
                     arg_index += 1;
                 }
                 Arg::Short('h') | Arg::Long("help") => {
-                    print_help();
-                    return Ok(ControlFlow::Break(()));
+                    any_args = false;
+                    break;
                 }
                 arg => Err(arg.unexpected())?,
             }
         }
 
         if !any_args {
-            print_help();
+            io::stdout().write_fmt(format_help!(
+                app_name = parser.bin_name().unwrap_or(APP_NAME),
+            ))?;
             return Ok(ControlFlow::Break(()));
         }
 
         Ok(ControlFlow::Continue(args.try_into()?))
+    }
+}
+
+#[derive(Debug, Default)]
+struct ArgsPartial {
+    port: Option<u16>,
+    path: Option<PathBuf>,
+}
+
+impl TryFrom<ArgsPartial> for Args {
+    type Error = anyhow::Error;
+
+    fn try_from(v: ArgsPartial) -> Result<Self, Self::Error> {
+        Ok(Self {
+            port: v
+                .port
+                .ok_or_else(|| anyhow::anyhow!("missing argument: port"))?,
+            path: v.path.unwrap_or_else(|| PathBuf::from(".")),
+        })
     }
 }
