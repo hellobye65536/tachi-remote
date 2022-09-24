@@ -14,11 +14,11 @@ const HELP: &str = concat!(
     "    tachi-remote [options] <port> [path]\n",
     "\n",
     "ARGS:\n",
-    "    <port>        the port to listen on\n",
-    "    [path]        path to the library directory, default is the current working directory\n",
+    "    <port>          the port to listen on\n",
+    "    [path]          path to the library directory, defaults to the current working directory\n",
     "\n",
     "OPTIONS:\n",
-    "    -h, --help    print help\n",
+    "    -h, --help      print help\n",
 );
 
 fn print_help() {

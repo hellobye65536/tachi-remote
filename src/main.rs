@@ -25,9 +25,7 @@ fn main_err() -> anyhow::Result<()> {
         ControlFlow::Break(()) => return Ok(()),
     };
 
-    let mut lib = Vec::new();
-    let mut read_buf = Vec::new();
-    load_library(&path, &mut lib, &mut read_buf);
+    let lib = load_library(&[&path])?;
 
     ServerBuilder::new(port).run(lib)
 }
