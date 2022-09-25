@@ -1,7 +1,7 @@
 use std::{
     env::current_dir,
     fmt::Display,
-    fs::{self, File},
+    fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
     ops::ControlFlow,
     path::PathBuf,
@@ -17,25 +17,19 @@ macro_rules! format_help {
         format_args!(
             concat!(
                 "{app_name} ", env!("CARGO_PKG_VERSION"), "\n",
-                "Generates an info.json to stdout from the provided directory\n",
-                "Title will be the directory name.\n",
-                "Any cover.* file is used as the cover, with the first page of the first chapter as default\n",
-                "Sorts file/directory names for chapters alphabetically\n",
+                "Prints a generated info.json to stdout using the provided chapters.\n",
+                "Title will be the current directory name.\n",
                 "\n",
                 "USAGE:\n",
-                "    {app_name} [options] [path]\n",
+                "    {app_name} [options] [chapters...]\n",
                 "\n",
                 "ARGS:\n",
-                "    [path]                      path to the manga directory, defaults to the current working directory\n",
+                "    [chapters...]              path to chapters\n",
                 "\n",
                 "OPTIONS:\n",
-                "    -h, --help                  print help\n",
-                // "    -i, --include [regexes...]\n",
-                // "    -x, --exclude [regexes...]\n",
-                // "                                regex patterns for files to include/exclude from chapter detection\n",
-                // "                                exclude overrides include. uses rust's 'regex' library\n",
-                "    --titles [titles...]        use titles for chapters in order\n",
-                "    --titles-file <file>        use lines from file for titles\n",
+                "    -h, --help                 print help\n",
+                "    -c, --cover <path>         use path as cover instead of the first page of the first chapter\n",
+                "    -t, --titles <file>        use lines from file for chapter titles, can be passed multiple times\n",
             ),
             $($v)*
         )
@@ -43,57 +37,10 @@ macro_rules! format_help {
 }
 
 #[derive(Debug)]
-pub enum Title {
-    String(String),
-    File(PathBuf),
-}
-
-impl IntoIterator for Title {
-    type Item = <TitleIter as Iterator>::Item;
-    type IntoIter = TitleIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        match self {
-            Title::String(s) => TitleIter::String(s),
-            Title::File(path) => match File::open(path) {
-                Ok(file) => TitleIter::File(BufReader::new(file).lines()),
-                Err(e) => TitleIter::Err(e),
-            },
-        }
-    }
-}
-
-pub enum TitleIter {
-    Done,
-    Err(io::Error),
-    String(String),
-    File(io::Lines<BufReader<File>>),
-}
-
-impl Iterator for TitleIter {
-    type Item = io::Result<String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Self::File(lines) = self {
-            match lines.next() {
-                None => *self = Self::Done,
-                line => return line,
-            }
-        }
-
-        match std::mem::replace(self, Self::Done) {
-            Self::Done => None,
-            Self::Err(e) => Some(Err(e)),
-            Self::String(v) => Some(Ok(v)),
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct Args {
-    path: PathBuf,
-    titles: Vec<Title>,
+    chapters: Vec<PathBuf>,
+    titles: Vec<PathBuf>,
+    cover: Option<PathBuf>,
 }
 
 impl Args {
@@ -104,8 +51,9 @@ impl Args {
 
         #[derive(Debug, Default)]
         struct ArgsPartial {
-            path: Option<PathBuf>,
-            titles: Vec<Title>,
+            chapters: Vec<PathBuf>,
+            titles: Vec<PathBuf>,
+            cover: Option<PathBuf>,
         }
 
         let mut args = ArgsPartial::default();
@@ -117,7 +65,7 @@ impl Args {
             match arg {
                 Arg::Value(v) => {
                     match arg_index {
-                        0 => args.path = Some(PathBuf::from(v)),
+                        0.. => args.chapters.push(v.into()),
                         _ => return Err(Arg::Value(v).unexpected()),
                     }
                     arg_index += 1;
@@ -130,20 +78,55 @@ impl Args {
                         .map_err(map_err)?;
                     return Ok(ControlFlow::Break(()));
                 }
-                Arg::Long("titles") => {
-                    for v in parser.values()? {
-                        args.titles.push(Title::String(v.into_string()?));
+                Arg::Short('c') | Arg::Long("cover") => {
+                    if args.cover.replace(parser.value()?.into()).is_some() {
+                        return Err("duplicate option 'cover'".into());
                     }
                 }
-                Arg::Long("titles-file") => args.titles.push(Title::File(parser.value()?.into())),
+                Arg::Short('t') | Arg::Long("titles") => args.titles.push(parser.value()?.into()),
                 arg => return Err(arg.unexpected()),
             }
         }
 
         Ok(ControlFlow::Continue(Args {
-            path: args.path.map_or_else(current_dir, Ok).map_err(map_err)?,
+            chapters: args.chapters,
             titles: args.titles,
+            cover: args.cover,
         }))
+    }
+}
+
+enum ResultIterator<T, E> {
+    Done,
+    Iter(T),
+    Err(E),
+}
+
+impl<T: Iterator<Item = Result<V, E>>, E, V> Iterator for ResultIterator<T, E> {
+    type Item = Result<V, E>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Self::Iter(iter) = self {
+            match iter.next() {
+                None => *self = Self::Done,
+                v => return v,
+            }
+        }
+
+        match std::mem::replace(self, Self::Done) {
+            ResultIterator::Done => None,
+            ResultIterator::Iter(_) => unreachable!(),
+            ResultIterator::Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+impl<T, E> From<Result<T, E>> for ResultIterator<T, E> {
+    fn from(v: Result<T, E>) -> Self {
+        match v {
+            Ok(v) => Self::Iter(v),
+            Err(e) => Self::Err(e),
+        }
     }
 }
 
@@ -155,7 +138,11 @@ fn main() {
 }
 
 fn main_err() -> anyhow::Result<()> {
-    let Args { path, titles } = match Args::parse_args()? {
+    let Args {
+        chapters,
+        titles,
+        cover,
+    } = match Args::parse_args()? {
         ControlFlow::Continue(v) => v,
         ControlFlow::Break(()) => return Ok(()),
     };
@@ -163,12 +150,10 @@ fn main_err() -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut write = BufWriter::new(stdout.lock());
 
-    let dir = path.read_dir()?;
-
     writeln!(&mut write, "id = \"{}\"", Uuid::new_v4())?;
-    if let Some(name) = path.file_name() {
-        if let Some(name) = name.to_str() {
-            writeln!(&mut write, "title = \"{}\"", EscapedStr(name))?;
+    if let Some(title) = current_dir()?.file_name() {
+        if let Some(title) = title.to_str() {
+            writeln!(&mut write, "title = \"{}\"", EscapedStr(title))?;
         } else {
             eprintln!("warning: directory name isn't valid unicode, using placeholder");
             writeln!(&mut write, "title = \"<title here>\"")?;
@@ -178,34 +163,13 @@ fn main_err() -> anyhow::Result<()> {
         writeln!(&mut write, "title = \"<title here>\"")?;
     }
 
-    let mut chapters = Vec::new();
-    let mut cover = None;
-    let mut dup_cover = false;
-
-    for entry in dir {
-        let entry = entry?;
-        let name = entry.file_name();
-
-        if name == "info.toml" {
-            continue;
-        }
-
-        if let Some(name_s) = name.to_str() {
-            if name_s.starts_with("cover.") && fs::metadata(entry.path())?.is_file() {
-                dup_cover = cover.replace(name.into_string().unwrap()).is_some();
-                continue;
-            }
-        }
-
-        chapters.push(name);
-    }
-
     if let Some(cover) = cover {
-        if dup_cover {
-            eprintln!("warning: duplicate covers, picking one arbitrarily");
+        if let Some(cover) = cover.to_str() {
+            writeln!(&mut write, "cover = \"{}\"", EscapedStr(&cover))?;
+        } else {
+            eprintln!("warning: cover path isn't valid unicode, using default");
+            write.write_all("cover = { ch = 0, pg = 0 }\n".as_bytes())?;
         }
-
-        writeln!(&mut write, "cover = \"{}\"", EscapedStr(&cover))?;
     } else {
         write.write_all("cover = { ch = 0, pg = 0 }\n".as_bytes())?;
     }
@@ -221,9 +185,9 @@ fn main_err() -> anyhow::Result<()> {
         .as_bytes(),
     )?;
 
-    chapters.sort_unstable();
-
-    let mut titles = titles.into_iter().flatten();
+    let mut titles = titles
+        .into_iter()
+        .flat_map(|v| ResultIterator::from(File::open(v).map(|v| BufReader::new(v).lines())));
 
     write.write_all("chapters = [\n".as_bytes())?;
     for ch in &chapters {
