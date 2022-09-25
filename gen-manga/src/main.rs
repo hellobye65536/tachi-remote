@@ -26,12 +26,16 @@ macro_rules! format_help {
                 "    {app_name} [options] [path]\n",
                 "\n",
                 "ARGS:\n",
-                "    [path]               path to the manga directory, defaults to the current working directory\n",
+                "    [path]                      path to the manga directory, defaults to the current working directory\n",
                 "\n",
                 "OPTIONS:\n",
-                "    -h, --help           print help\n",
-                "    --titles [titles..]  use titles for chapters in order\n",
-                "    --titles-file <file> use lines from file for titles\n",
+                "    -h, --help                  print help\n",
+                // "    -i, --include [regexes...]\n",
+                // "    -x, --exclude [regexes...]\n",
+                // "                                regex patterns for files to include/exclude from chapter detection\n",
+                // "                                exclude overrides include. uses rust's 'regex' library\n",
+                "    --titles [titles...]        use titles for chapters in order\n",
+                "    --titles-file <file>        use lines from file for titles\n",
             ),
             $($v)*
         )
@@ -94,6 +98,10 @@ pub struct Args {
 
 impl Args {
     pub fn parse_args() -> Result<ControlFlow<(), Self>, lexopt::Error> {
+        fn map_err<E: std::error::Error + Send + Sync + 'static>(e: E) -> lexopt::Error {
+            lexopt::Error::Custom(e.into())
+        }
+
         #[derive(Debug, Default)]
         struct ArgsPartial {
             path: Option<PathBuf>,
@@ -115,12 +123,12 @@ impl Args {
                     arg_index += 1;
                 }
                 Arg::Short('h') | Arg::Long("help") => {
-                    match io::stdout().write_fmt(format_help!(
-                        app_name = parser.bin_name().unwrap_or(APP_NAME),
-                    )) {
-                        Ok(()) => return Ok(ControlFlow::Break(())),
-                        Err(e) => return Err(lexopt::Error::Custom(e.into())),
-                    }
+                    io::stdout()
+                        .write_fmt(format_help!(
+                            app_name = parser.bin_name().unwrap_or(APP_NAME),
+                        ))
+                        .map_err(map_err)?;
+                    return Ok(ControlFlow::Break(()));
                 }
                 Arg::Long("titles") => {
                     for v in parser.values()? {
@@ -133,10 +141,7 @@ impl Args {
         }
 
         Ok(ControlFlow::Continue(Args {
-            path: args
-                .path
-                .map_or_else(current_dir, Ok)
-                .map_err(|v| lexopt::Error::Custom(v.into()))?,
+            path: args.path.map_or_else(current_dir, Ok).map_err(map_err)?,
             titles: args.titles,
         }))
     }

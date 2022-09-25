@@ -27,7 +27,7 @@ pub fn load_library<P: AsRef<Path>>(path: &[P]) -> anyhow::Result<LibraryEntry> 
         .filter_entry(|entry| entry.file_type().is_dir());
 
     let mut lib_buf = vec![b'['];
-    let mut mangas = HashMap::new();
+    let mut mangas: HashMap<String, MangaEntry> = HashMap::new();
 
     let mut read_buf = Vec::new();
     while let Some(entry) = walk.next() {
@@ -38,7 +38,7 @@ pub fn load_library<P: AsRef<Path>>(path: &[P]) -> anyhow::Result<LibraryEntry> 
 
             if let Some(manga) = load_manga(&mut path, &mut read_buf) {
                 walk.skip_current_dir();
-                let manga =
+                let mut manga =
                     manga.with_context(|| anyhow::anyhow!("{:?}: error reading manga", path))?;
 
                 struct LibraryEntrySer<'a>(&'a Manga<'a>);
@@ -46,15 +46,18 @@ pub fn load_library<P: AsRef<Path>>(path: &[P]) -> anyhow::Result<LibraryEntry> 
                     fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
                         use serde::ser::SerializeStruct;
                         let mut ser = ser.serialize_struct("LibraryEntrySer", 2)?;
-                        ser.serialize_field("id", self.0.id)?;
-                        ser.serialize_field("title", self.0.title)?;
+                        ser.serialize_field("id", &self.0.id)?;
+                        ser.serialize_field("title", &self.0.title)?;
                         ser.end()
                     }
                 }
                 serde_json::to_writer(&mut lib_buf, &LibraryEntrySer(&manga))?;
                 lib_buf.push(b',');
 
-                mangas.insert(manga.id.into(), MangaEntry::new(manga)?);
+                mangas.insert(
+                    mem::take(&mut manga.id).into_owned(),
+                    MangaEntry::new(manga)?,
+                );
             }
 
             Ok(())
@@ -260,9 +263,11 @@ impl Display for JsonBytes {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Manga<'a> {
+    #[serde(borrow)]
     #[serde(skip_serializing)]
-    pub id: &'a str,
-    pub title: &'a str,
+    pub id: Cow<'a, str>,
+    #[serde(borrow)]
+    pub title: Cow<'a, str>,
     #[serde(skip_serializing)]
     pub cover: Option<PathBuf>,
     #[serde(default)]
@@ -287,9 +292,11 @@ struct Manga<'a> {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Chapter<'a> {
+    #[serde(borrow)]
     #[serde(skip_serializing)]
-    pub path: &'a Path,
-    pub title: &'a str,
+    pub path: Cow<'a, Path>,
+    #[serde(borrow)]
+    pub title: Cow<'a, str>,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_zero")]
     pub date: u64,
