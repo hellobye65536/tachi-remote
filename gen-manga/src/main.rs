@@ -115,12 +115,12 @@ impl Args {
                     arg_index += 1;
                 }
                 Arg::Short('h') | Arg::Long("help") => {
-                    io::stdout()
-                        .write_fmt(format_help!(
-                            app_name = parser.bin_name().unwrap_or(APP_NAME),
-                        ))
-                        .map_err(|v| lexopt::Error::Custom(v.into()))?;
-                    return Ok(ControlFlow::Break(()));
+                    match io::stdout().write_fmt(format_help!(
+                        app_name = parser.bin_name().unwrap_or(APP_NAME),
+                    )) {
+                        Ok(()) => return Ok(ControlFlow::Break(())),
+                        Err(e) => return Err(lexopt::Error::Custom(e.into())),
+                    }
                 }
                 Arg::Long("titles") => {
                     for v in parser.values()? {

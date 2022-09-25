@@ -36,7 +36,13 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn parse_args() -> anyhow::Result<ControlFlow<(), Self>> {
+    pub fn parse_args() -> Result<ControlFlow<(), Self>, lexopt::Error> {
+        #[derive(Debug, Default)]
+        struct ArgsPartial {
+            port: Option<u16>,
+            path: Option<PathBuf>,
+        }
+
         let mut args = ArgsPartial::default();
         let mut arg_index = 0usize;
 
@@ -50,7 +56,7 @@ impl Args {
                     match arg_index {
                         0 => args.port = Some(v.parse()?),
                         1 => args.path = Some(PathBuf::from(v)),
-                        _ => Err(Arg::Value(v).unexpected())?,
+                        _ => return Err(Arg::Value(v).unexpected()),
                     }
                     arg_index += 1;
                 }
@@ -58,36 +64,22 @@ impl Args {
                     any_args = false;
                     break;
                 }
-                arg => Err(arg.unexpected())?,
+                arg => return Err(arg.unexpected()),
             }
         }
 
         if !any_args {
-            io::stdout().write_fmt(format_help!(
+            match io::stdout().write_fmt(format_help!(
                 app_name = parser.bin_name().unwrap_or(APP_NAME),
-            ))?;
-            return Ok(ControlFlow::Break(()));
+            )) {
+                Ok(()) => return Ok(ControlFlow::Break(())),
+                Err(e) => return Err(lexopt::Error::Custom(e.into())),
+            }
         }
 
-        Ok(ControlFlow::Continue(args.try_into()?))
-    }
-}
-
-#[derive(Debug, Default)]
-struct ArgsPartial {
-    port: Option<u16>,
-    path: Option<PathBuf>,
-}
-
-impl TryFrom<ArgsPartial> for Args {
-    type Error = anyhow::Error;
-
-    fn try_from(v: ArgsPartial) -> Result<Self, Self::Error> {
-        Ok(Self {
-            port: v
-                .port
-                .ok_or_else(|| anyhow::anyhow!("missing argument: port"))?,
-            path: v.path.unwrap_or_else(|| PathBuf::from(".")),
-        })
+        Ok(ControlFlow::Continue(Args {
+            port: args.port.ok_or("missing argument 'port'")?,
+            path: args.path.unwrap_or_else(|| PathBuf::from(".")),
+        }))
     }
 }
