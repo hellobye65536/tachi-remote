@@ -19,7 +19,7 @@ macro_rules! format_help {
                 "{app_name} ", env!("CARGO_PKG_VERSION"), "\n",
                 "Generates an info.json to stdout from the provided directory\n",
                 "Title will be the directory name.\n",
-                "Any cover.* file as the cover, and anything else as a chapter.\n",
+                "Any cover.* file is used as the cover, with the first page of the first chapter as default\n",
                 "Sorts file/directory names for chapters alphabetically\n",
                 "\n",
                 "USAGE:\n",
@@ -206,6 +206,8 @@ fn main_err() -> anyhow::Result<()> {
         }
 
         writeln!(&mut write, "cover = \"{}\"", EscapedStr(&cover))?;
+    } else {
+        write.write_all("cover = { ch = 0, pg = 0 }\n".as_bytes())?;
     }
 
     write.write_all(

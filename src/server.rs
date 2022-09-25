@@ -8,12 +8,12 @@ use anyhow::Context;
 use futures::TryFutureExt;
 use log::{info, warn};
 
-use axum::{body::Full, extract::Path, Extension};
+use axum::{body::Full, extract::Path, response::Response, Extension};
 use axum::{response::IntoResponse, routing::get, Router};
 use http::StatusCode;
 use tokio::signal::ctrl_c;
 
-use crate::load::{JsonBytes, LibraryEntry, Pages};
+use crate::load::{Cover, JsonBytes, LibraryEntry, Pages};
 
 #[derive(Debug, Default)]
 pub struct ServerBuilder {
@@ -81,19 +81,24 @@ async fn serve_manga(
 async fn serve_cover(
     Extension(lib): Extension<&'static LibraryEntry>,
     Path(manga): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<Response, StatusCode> {
     let cover = lib
         .mangas
         .get(&manga)
         .and_then(|manga| manga.cover.as_ref())
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    fs::read(cover)
-        .map_err(|e| {
-            warn!("{:?}: error opening page: {}", cover, e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
-        .map(Full::from)
+    match cover {
+        Cover::File(path) => fs::read(path)
+            .map_err(|e| {
+                warn!("{:?}: error opening cover: {}", cover, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })
+            .map(|v| Full::from(v).into_response()),
+        &Cover::Page { ch, pg } => serve_page(Extension(lib), Path((manga, ch, pg)))
+            .await
+            .map(IntoResponse::into_response),
+    }
 }
 
 async fn serve_page(

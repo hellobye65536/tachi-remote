@@ -104,7 +104,7 @@ fn load_manga<'a>(
             load_chapter(&path, ch, i)?;
         }
 
-        if let Some(cover) = &mut manga.cover {
+        if let Some(Cover::File(cover)) = &mut manga.cover {
             path.push(&cover);
             *cover = mem::replace(path, PathBuf::new());
         }
@@ -205,7 +205,7 @@ pub struct LibraryEntry {
 #[derive(Debug)]
 pub struct MangaEntry {
     pub json: JsonBytes,
-    pub cover: Option<Box<Path>>,
+    pub cover: Option<Cover>,
     pub chapters: Box<[ChapterEntry]>,
 }
 
@@ -269,7 +269,7 @@ struct Manga<'a> {
     #[serde(borrow)]
     pub title: Cow<'a, str>,
     #[serde(skip_serializing)]
-    pub cover: Option<PathBuf>,
+    pub cover: Option<Cover>,
     #[serde(default)]
     #[serde(skip_serializing_if = "MangaStatus::is_unknown")]
     pub status: MangaStatus,
@@ -390,6 +390,18 @@ impl From<MangaStatus> for u32 {
 
 fn is_zero(&v: &u64) -> bool {
     v == 0
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum Cover {
+    File(PathBuf),
+    Page {
+        #[serde(alias = "chapter")]
+        ch: usize,
+        #[serde(alias = "page")]
+        pg: usize,
+    },
 }
 
 #[derive(Debug)]
