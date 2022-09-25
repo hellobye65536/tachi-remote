@@ -269,8 +269,8 @@ struct Manga<'a> {
     #[serde(skip_serializing_if = "MangaStatus::is_unknown")]
     pub status: MangaStatus,
     #[serde(default)]
-    #[serde(skip_serializing_if = "TachiyomiList::is_empty")]
-    pub description: TachiyomiList<'a>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "TachiyomiList::is_empty")]
     pub authors: TachiyomiList<'a>,
