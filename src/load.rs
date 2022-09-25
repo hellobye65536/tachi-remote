@@ -81,7 +81,7 @@ fn load_manga<'a>(
     path: &mut PathBuf,
     read_buf: &'a mut Vec<u8>,
 ) -> Option<anyhow::Result<Manga<'a>>> {
-    path.push("info.json");
+    path.push("info.toml");
     let file = File::open(&path);
     path.pop();
 
