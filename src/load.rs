@@ -95,7 +95,7 @@ fn load_manga<'a>(
         read_buf.clear();
         { file }.read_to_end(read_buf)?;
 
-        let mut manga: Manga = serde_json::from_slice(read_buf)?;
+        let mut manga: Manga = toml::from_slice(read_buf)?;
 
         for (i, ch) in manga.chapters.iter_mut().enumerate() {
             load_chapter(&path, ch, i)?;

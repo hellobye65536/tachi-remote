@@ -10,6 +10,7 @@ lexopt = "0.2"
 walkdir = "2.3"
 bstr = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+toml = "0.5"
 serde_json = "1.0"
 
 infer = { version = "0.9", optional = true }
