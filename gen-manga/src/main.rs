@@ -1,8 +1,8 @@
 use std::{
     env::current_dir,
     fmt::Display,
-    fs,
-    io::{self, BufWriter, Write},
+    fs::{self, File},
+    io::{self, BufRead, BufReader, BufWriter, Write},
     ops::ControlFlow,
     path::PathBuf,
 };
@@ -30,7 +30,8 @@ macro_rules! format_help {
                 "\n",
                 "OPTIONS:\n",
                 "    -h, --help           print help\n",
-                // "    -o, --output=file    write output to file or '-' for stdout, defaults to stdout\n"
+                "    --titles [titles..]  use titles for chapters in order\n",
+                "    --titles-file <file> use lines from file for titles\n",
             ),
             $($v)*
         )
@@ -38,12 +39,67 @@ macro_rules! format_help {
 }
 
 #[derive(Debug)]
+pub enum Title {
+    String(String),
+    File(PathBuf),
+}
+
+impl IntoIterator for Title {
+    type Item = <TitleIter as Iterator>::Item;
+    type IntoIter = TitleIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            Title::String(s) => TitleIter::String(s),
+            Title::File(path) => match File::open(path) {
+                Ok(file) => TitleIter::File(BufReader::new(file).lines()),
+                Err(e) => TitleIter::Err(e),
+            },
+        }
+    }
+}
+
+pub enum TitleIter {
+    Done,
+    Err(io::Error),
+    String(String),
+    File(io::Lines<BufReader<File>>),
+}
+
+impl Iterator for TitleIter {
+    type Item = io::Result<String>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Self::File(lines) = self {
+            match lines.next() {
+                None => *self = Self::Done,
+                line => return line,
+            }
+        }
+
+        match std::mem::replace(self, Self::Done) {
+            Self::Done => None,
+            Self::Err(e) => Some(Err(e)),
+            Self::String(v) => Some(Ok(v)),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Args {
     path: PathBuf,
+    titles: Vec<Title>,
 }
 
 impl Args {
-    pub fn parse_args() -> anyhow::Result<ControlFlow<(), Self>> {
+    pub fn parse_args() -> Result<ControlFlow<(), Self>, lexopt::Error> {
+        #[derive(Debug, Default)]
+        struct ArgsPartial {
+            path: Option<PathBuf>,
+            titles: Vec<Title>,
+        }
+
         let mut args = ArgsPartial::default();
         let mut arg_index = 0usize;
 
@@ -54,36 +110,35 @@ impl Args {
                 Arg::Value(v) => {
                     match arg_index {
                         0 => args.path = Some(PathBuf::from(v)),
-                        _ => Err(Arg::Value(v).unexpected())?,
+                        _ => return Err(Arg::Value(v).unexpected()),
                     }
                     arg_index += 1;
                 }
                 Arg::Short('h') | Arg::Long("help") => {
-                    io::stdout().write_fmt(format_help!(
-                        app_name = parser.bin_name().unwrap_or(APP_NAME),
-                    ))?;
+                    io::stdout()
+                        .write_fmt(format_help!(
+                            app_name = parser.bin_name().unwrap_or(APP_NAME),
+                        ))
+                        .map_err(|v| lexopt::Error::Custom(v.into()))?;
                     return Ok(ControlFlow::Break(()));
                 }
-                arg => return Err(arg.unexpected().into()),
+                Arg::Long("titles") => {
+                    for v in parser.values()? {
+                        args.titles.push(Title::String(v.into_string()?));
+                    }
+                }
+                Arg::Long("titles-file") => args.titles.push(Title::File(parser.value()?.into())),
+                arg => return Err(arg.unexpected()),
             }
         }
 
-        Ok(ControlFlow::Continue(args.try_into()?))
-    }
-}
-
-#[derive(Debug, Default)]
-struct ArgsPartial {
-    path: Option<PathBuf>,
-}
-
-impl TryFrom<ArgsPartial> for Args {
-    type Error = anyhow::Error;
-
-    fn try_from(v: ArgsPartial) -> Result<Self, Self::Error> {
-        Ok(Self {
-            path: v.path.map_or_else(current_dir, Ok)?,
-        })
+        Ok(ControlFlow::Continue(Args {
+            path: args
+                .path
+                .map_or_else(current_dir, Ok)
+                .map_err(|v| lexopt::Error::Custom(v.into()))?,
+            titles: args.titles,
+        }))
     }
 }
 
@@ -95,7 +150,7 @@ fn main() {
 }
 
 fn main_err() -> anyhow::Result<()> {
-    let Args { path } = match Args::parse_args()? {
+    let Args { path, titles } = match Args::parse_args()? {
         ControlFlow::Continue(v) => v,
         ControlFlow::Break(()) => return Ok(()),
     };
@@ -161,13 +216,18 @@ fn main_err() -> anyhow::Result<()> {
 
     chapters.sort_unstable();
 
+    let mut titles = titles.into_iter().flatten();
+
     write.write_all("chapters = [\n".as_bytes())?;
     for ch in &chapters {
+        let title = titles.next();
+
         if let Some(ch) = ch.to_str() {
             writeln!(
                 &mut write,
-                "    {{ path = \"{ch}\", title = \"{ch}\" }},",
-                ch = EscapedStr(&ch)
+                "    {{ path = \"{}\", title = \"{}\" }},",
+                EscapedStr(ch),
+                EscapedStr(title.transpose()?.as_deref().unwrap_or(ch))
             )?;
         } else {
             eprintln!(
