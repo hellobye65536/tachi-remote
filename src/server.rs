@@ -41,20 +41,16 @@ impl ServerBuilder {
 async fn run_server(builder: ServerBuilder, lib: LibraryEntry) -> anyhow::Result<()> {
     let ServerBuilder { port } = builder;
 
-    info!("hosting server at port {}", port);
+    info!("hosting server at port {}, serving {} manga", port, lib.mangas.len());
 
     let lib = &*Box::leak(Box::new(lib));
 
-    let serve_v1 = Router::new()
+    let serve = Router::new()
         .route("/", get(serve_lib))
         .route("/:manga", get(serve_manga))
         .route("/:manga/cover", get(serve_cover))
-        .route("/:manga/:ch/:pg", get(serve_page));
-
-    let serve = Router::new().nest("/v1", serve_v1).layer(Extension(lib));
-    // .layer(
-    //     CompressionLayer::new().compress_when(SizeAbove::new(64).and(NotForEmptyContentType)),
-    // )
+        .route("/:manga/:ch/:pg", get(serve_page))
+        .layer(Extension(lib));
 
     hyper::Server::try_bind(&(Ipv6Addr::UNSPECIFIED, port).into())?
         .serve(serve.into_make_service())
