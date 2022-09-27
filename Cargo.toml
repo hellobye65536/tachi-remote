@@ -28,11 +28,12 @@ simple_logger = "2.3"
 futures = "0.3"
 tokio = { version = "1.20", features = ["parking_lot", "rt", "net", "signal"] } # rt-multi-thread
 
+flate2 = "1.0.24"
+
 bytes = "1.2.1"
 http = "0.2"
-hyper = "0.14"
 tower = "0.4"
-axum = { version = "0.5", default-features = false, features = ["http1", "http2"] }
+hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime"] }
 
 [features]
 default = ["zip", "infer"]

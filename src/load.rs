@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fmt::{self, Debug, Display},
+    fmt::{self, Debug},
     fs::{self, File},
     io::{self, Read},
     mem,
@@ -9,15 +9,13 @@ use std::{
 };
 
 use anyhow::Context;
-use bstr::ByteSlice;
 use log::error;
 
 use rc_zip::StoredEntry;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use walkdir::WalkDir;
 
-use axum::response::IntoResponse;
-use http::{header::CONTENT_TYPE, HeaderValue};
+use crate::server::JsonBytes;
 
 pub fn load_library<P: AsRef<Path>>(path: &[P]) -> anyhow::Result<LibraryEntry> {
     let mut walk = WalkDir::new(&path[0])
@@ -227,37 +225,6 @@ pub struct ChapterEntry {
 impl ChapterEntry {
     fn new(ch: Chapter) -> Self {
         Self { pages: ch.pages }
-    }
-}
-
-pub struct JsonBytes {
-    raw: Box<[u8]>,
-}
-
-impl From<Vec<u8>> for JsonBytes {
-    fn from(v: Vec<u8>) -> Self {
-        Self { raw: v.into() }
-    }
-}
-
-impl IntoResponse for &'static JsonBytes {
-    fn into_response(self) -> axum::response::Response {
-        let mut res = self.raw.into_response();
-        res.headers_mut()
-            .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        res
-    }
-}
-
-impl Debug for JsonBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.raw.as_bstr(), f)
-    }
-}
-
-impl Display for JsonBytes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.raw.as_bstr(), f)
     }
 }
 
