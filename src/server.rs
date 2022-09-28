@@ -60,17 +60,8 @@ async fn run_server(builder: ServerBuilder, lib: LibraryEntry) -> anyhow::Result
 
     let shared = &*Box::leak(Box::new(Shared { lib }));
 
-    // let serve = Router::new()
-    //     .route("/", get(serve_lib))
-    //     .route("/:manga", get(serve_manga))
-    //     .route("/:manga/cover", get(serve_cover))
-    //     .route("/:manga/:ch/:pg", get(serve_page))
-    //     .layer(Extension(lib));
-
-    let make_service = make_service_fn(|_conn| {
-        ();
-        async { Ok::<_, Infallible>(service_fn(|req| shared.serve(req))) }
-    });
+    let make_service =
+        make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(|req| shared.serve(req))) });
 
     hyper::Server::try_bind(&(Ipv6Addr::UNSPECIFIED, port).into())?
         .serve(make_service)
@@ -93,7 +84,7 @@ impl Shared {
         let mut path = req.uri().path().split('/').skip(1);
 
         let manga = match path.next() {
-            None => return self.serve_lib(req).await,
+            None | Some("") => return self.serve_lib(req).await,
             Some(manga) => self.lib.mangas.get(manga).ok_or(Error::NotFound)?,
         };
 
@@ -146,12 +137,14 @@ impl Shared {
         let cover = manga.cover.as_ref().ok_or(Error::NotFound)?;
 
         match cover {
-            Cover::File(path) => Ok(Response::new(
-                fs::read(path)
-                    .with_context(|| format!("{:?}: error opening cover", cover))?
-                    .into(),
-            )),
-            &Cover::Page { ch, pg } => self.serve_page(req, manga, ch, pg).await,
+            Cover::File(path) => fs::read(path)
+                .map(|v| Response::new(v.into()))
+                .with_context(|| format!("{:?}: error opening cover", cover))
+                .map_err(Into::into),
+            &Cover::Page { ch, pg } => self
+                .serve_page(req, manga, ch, pg)
+                .await
+                .map_err(|e| e.with_context(|| format!("{:?}: error opening cover", cover))),
         }
     }
 
@@ -197,14 +190,6 @@ impl Shared {
     }
 }
 
-// #[derive(Debug, Clone, Copy)]
-// struct NotForEmptyContentType;
-// impl Predicate for NotForEmptyContentType {
-//     fn should_compress<B: HttpBody>(&self, response: &http::Response<B>) -> bool {
-//         response.headers().contains_key(CONTENT_TYPE)
-//     }
-// }
-
 #[derive(Debug)]
 pub enum Error {
     NotFound,
@@ -235,6 +220,13 @@ impl Error {
 
         res
     }
+
+    pub fn with_context<T: Display + Send + Sync + 'static>(self, f: impl FnOnce() -> T) -> Self {
+        match self {
+            Self::Other(e) => Self::Other(e.context(f())),
+            _ => self,
+        }
+    }
 }
 
 pub struct JsonBytes {
@@ -254,12 +246,10 @@ impl JsonBytes {
         let gzip = Vec::new();
         let mut gzip = GzEncoder::new(gzip, Compression::best());
         gzip.write_all(&raw).unwrap();
-        let gzip = gzip.finish().unwrap().into();
+        let gzip = gzip.finish().unwrap().into_boxed_slice();
+        let gzip = (gzip.len() < raw.len()).then(|| gzip);
 
-        Self {
-            raw,
-            gzip: Some(gzip),
-        }
+        Self { raw, gzip }
     }
 
     pub fn into_response(&'static self, headers: &HeaderMap) -> Result<Response, Error> {

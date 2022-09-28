@@ -17,7 +17,7 @@ macro_rules! format_help {
         format_args!(
             concat!(
                 "{app_name} ", env!("CARGO_PKG_VERSION"), "\n",
-                "Prints a generated info.json to stdout using the provided chapters.\n",
+                "Prints a generated info.toml to stdout using the provided chapters.\n",
                 "Title will be the current directory name.\n",
                 "\n",
                 "USAGE:\n",
