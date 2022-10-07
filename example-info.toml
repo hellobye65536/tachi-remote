@@ -1,0 +1,40 @@
+# id - any string - used for identification
+# must be unique amongst all manga
+# I recommend a UUID
+id = "862ac317-b101-4ef6-8d35-d8d02516657e"
+
+title = ""
+
+# cover as a page in a chapter:
+cover = { ch = 0, pg = 0 }
+# or using a path relative to the manga directory:
+# cover = "cover.jpg"
+
+status = "unknown"
+# or one of: 
+#   ongoing
+#   completed
+#   licensed
+#   publishingfinished
+#   cancelled
+#   onhiatus
+
+description = ""
+
+authors = "Author A, Author B"
+# or using a list:
+# authors = ["Author A", "Author B"]
+
+artists = "Artist A, Artist B"
+# or using a list:
+# artists = ["Artist A", "Artist B"]
+
+tags = "Tag 1, Tag 2"
+# or using a list:
+# tags = ["Tag 1", "Tag 2"]
+
+# list of chapters from oldest to newest
+chapters = [
+    # chapters support directories or zip/cbz files
+    { path = "chapter.cbz", title = "" },
+]
