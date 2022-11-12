@@ -1,5 +1,5 @@
 # TachiRemote
-A lightweight manga server designed to work with [Tachiyomi](https://tachiyomi.org) ([github](https://github.com/tachiyomiorg/tachiyomi)).
+A lightweight manga server designed to work with [Tachiyomi](https://tachiyomi.org) ([github](https://github.com/tachiyomiorg/tachiyomi)). See the [extension](https://github.com/hellobye65536/tachiyomi-extensions).
 
 Disclaimer: This project is not associated with the Tachiyomi project in any way.
 
