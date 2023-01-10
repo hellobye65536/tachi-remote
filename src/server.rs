@@ -246,8 +246,8 @@ impl JsonBytes {
         let gzip = Vec::new();
         let mut gzip = GzEncoder::new(gzip, Compression::best());
         gzip.write_all(&raw).unwrap();
-        let gzip = gzip.finish().unwrap().into_boxed_slice();
-        let gzip = (gzip.len() < raw.len()).then(|| gzip);
+        let gzip = gzip.finish().expect("Vec::write never fails").into_boxed_slice();
+        let gzip = (gzip.len() < raw.len()).then_some(gzip);
 
         Self { raw, gzip }
     }

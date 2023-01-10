@@ -294,7 +294,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for TachiyomiList<'a> {
             }
 
             fn visit_borrowed_str<E: Error>(self, v: &'de str) -> Result<Self::Value, E> {
-                Ok(TachiyomiList(v.into()))
+                Ok(TachiyomiList(Cow::Borrowed(v)))
             }
 
             fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
@@ -302,7 +302,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for TachiyomiList<'a> {
             }
 
             fn visit_string<E: Error>(self, v: String) -> Result<Self::Value, E> {
-                Ok(TachiyomiList(v.into()))
+                Ok(TachiyomiList(Cow::Owned(v)))
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
