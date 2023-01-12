@@ -11,7 +11,6 @@ use std::{
 use anyhow::Context;
 use log::error;
 
-use rc_zip::StoredEntry;
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use walkdir::WalkDir;
 
@@ -177,6 +176,7 @@ fn load_pages_file(path: PathBuf) -> anyhow::Result<Pages> {
 
 #[cfg(feature = "zip")]
 fn load_pages_zip(path: PathBuf, file: File) -> anyhow::Result<Pages> {
+    use positioned_io::ReadAt;
     use rc_zip::{EntryContents, ReadZip};
 
     let zip = file.read_zip()?;
@@ -184,8 +184,25 @@ fn load_pages_zip(path: PathBuf, file: File) -> anyhow::Result<Pages> {
         .entries()
         .into_iter()
         .filter(|entry| matches!(entry.contents(), EntryContents::File(..)))
-        .map(|entry| (entry.name(), MiniZipEntry::new(entry)))
-        .collect::<Vec<_>>();
+        .map(|entry| {
+            let mut buf = [0; 4];
+            let sz = file.read_at(entry.header_offset + 26, &mut buf)?;
+            anyhow::ensure!(sz == 4, "read less than 4 bytes from zip");
+
+            let name_len = u16::from_le_bytes(buf[0..2].try_into().expect("unreachable"));
+            let extra_len = u16::from_le_bytes(buf[2..4].try_into().expect("unreachable"));
+
+            Ok((
+                entry.name(),
+                ZipEntry {
+                    method: entry.method(),
+                    data_offset: entry.header_offset + 30 + name_len as u64 + extra_len as u64,
+                    compressed_size: entry.compressed_size,
+                    uncompressed_size: entry.uncompressed_size,
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     entries.sort_unstable_by_key(|(v, _)| *v);
 
@@ -375,7 +392,8 @@ pub enum Cover {
 pub enum Pages {
     None,
     Filesystem(Box<[PathBuf]>),
-    Zip(PathBuf, Box<[MiniZipEntry]>),
+    #[cfg(feature = "zip")]
+    Zip(PathBuf, Box<[ZipEntry]>),
 }
 
 impl Default for Pages {
@@ -402,53 +420,11 @@ impl Serialize for Pages {
     }
 }
 
+#[cfg(feature = "zip")]
 #[derive(Debug, Clone, Copy)]
-pub struct MiniZipEntry {
-    method: rc_zip::Method,
-    crc32: u32,
-    header_offset: u64,
-    compressed_size: u64,
-    uncompressed_size: u64,
-    is_zip64: bool,
-}
-
-impl MiniZipEntry {
-    fn new(entry: &StoredEntry) -> Self {
-        Self {
-            method: entry.entry.method,
-            crc32: entry.crc32,
-            header_offset: entry.header_offset,
-            compressed_size: entry.compressed_size,
-            uncompressed_size: entry.uncompressed_size,
-            is_zip64: entry.is_zip64,
-        }
-    }
-
-    pub fn as_stored_entry(&self) -> StoredEntry {
-        use rc_zip::{Entry, Mode, Version};
-
-        StoredEntry {
-            entry: Entry {
-                name: Default::default(),
-                method: self.method,
-                comment: Default::default(),
-                modified: Default::default(),
-                created: Default::default(),
-                accessed: Default::default(),
-            },
-            crc32: self.crc32,
-            header_offset: self.header_offset,
-            compressed_size: self.compressed_size,
-            uncompressed_size: self.uncompressed_size,
-            external_attrs: Default::default(),
-            creator_version: Version(0),
-            reader_version: Version(0),
-            flags: Default::default(),
-            uid: Default::default(),
-            gid: Default::default(),
-            mode: Mode(0),
-            extra_fields: Default::default(),
-            is_zip64: self.is_zip64,
-        }
-    }
+pub struct ZipEntry {
+    pub method: rc_zip::Method,
+    pub data_offset: u64,
+    pub compressed_size: u64,
+    pub uncompressed_size: u64,
 }

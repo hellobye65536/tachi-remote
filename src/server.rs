@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::Context;
 use bstr::ByteSlice;
+use flate2::read::DeflateDecoder;
 use futures::TryFutureExt;
 use log::{error, info};
 
@@ -169,20 +170,44 @@ impl Shared {
 
                 Ok(Response::new(fs::read(page).with_context(ctx)?.into()))
             }
+            #[cfg(feature = "zip")]
             Pages::Zip(path, pages) => {
                 let page = pages.get(pg).ok_or(Error::NotFound)?;
                 let ctx = || format!("{:?}: error opening page", path);
 
                 let mut file = File::open(path).with_context(ctx)?;
-                let stored_entry = page.as_stored_entry();
-
-                file.seek(io::SeekFrom::Start(stored_entry.header_offset))
+                file.seek(io::SeekFrom::Start(page.data_offset))
                     .with_context(ctx)?;
+                let mut file = file.take(page.compressed_size);
 
-                let mut page_reader = stored_entry.reader(|_| &file);
+                let mut buf =
+                    Vec::with_capacity(page.uncompressed_size.try_into().expect("usize overflow"));
 
-                let mut buf = Vec::with_capacity(stored_entry.uncompressed_size as usize);
-                page_reader.read_to_end(&mut buf).with_context(ctx)?;
+                match page.method {
+                    rc_zip::Method::Store => {
+                        file.read_to_end(&mut buf).with_context(ctx)?;
+                    }
+                    rc_zip::Method::Deflate => {
+                        if req
+                            .headers()
+                            .get(ACCEPT_ENCODING)
+                            .map(|v| v.to_str().map_err(|_| Error::NotAcceptable))
+                            .transpose()?
+                            .map_or(false, |v| v.contains("deflate"))
+                        {
+                            file.read_to_end(&mut buf).with_context(ctx)?;
+                            let mut resp = Response::new(buf.into());
+                            resp.headers_mut()
+                                .insert(CONTENT_ENCODING, HeaderValue::from_static("deflate"));
+                            return Ok(resp);
+                        }
+
+                        DeflateDecoder::new(file)
+                            .read_to_end(&mut buf)
+                            .with_context(ctx)?;
+                    }
+                    _ => Err(anyhow::anyhow!("unsupported compression type")).with_context(ctx)?,
+                }
 
                 Ok(Response::new(buf.into()))
             }
@@ -246,7 +271,10 @@ impl JsonBytes {
         let gzip = Vec::new();
         let mut gzip = GzEncoder::new(gzip, Compression::best());
         gzip.write_all(&raw).unwrap();
-        let gzip = gzip.finish().expect("Vec::write never fails").into_boxed_slice();
+        let gzip = gzip
+            .finish()
+            .expect("Vec::write never fails")
+            .into_boxed_slice();
         let gzip = (gzip.len() < raw.len()).then_some(gzip);
 
         Self { raw, gzip }
