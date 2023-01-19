@@ -82,35 +82,40 @@ impl Shared {
     }
 
     async fn route(&'static self, req: &Request<Body>) -> Result<Response<Body>, Error> {
+        if Method::GET != *req.method() {
+            return Err(StatusCode::METHOD_NOT_ALLOWED.into());
+        }
+
         let mut path = req.uri().path().split('/').skip(1);
 
         let manga = match path.next() {
             None | Some("") => return self.serve_lib(req).await,
-            Some(manga) => self.lib.mangas.get(manga).ok_or(Error::NotFound)?,
+            Some(manga) => self.lib.mangas.get(manga).ok_or(Error::NOT_FOUND)?,
         };
 
         let ch = match path.next() {
             None => return self.serve_manga(req, manga).await,
-            Some("cover") => return self.serve_cover(req, manga).await,
-            Some(ch) => ch.parse().map_err(|_| Error::NotFound)?,
+            Some("cover") => {
+                if path.next().is_some() {
+                    return Err(Error::NOT_FOUND);
+                }
+                return self.serve_cover(req, manga).await;
+            }
+            Some(ch) => ch.parse().map_err(|_| Error::NOT_FOUND)?,
         };
 
         let pg = match path.next() {
-            None => return Err(Error::NotFound),
-            Some(pg) => pg.parse().map_err(|_| Error::NotFound)?,
+            None => return Err(Error::NOT_FOUND),
+            Some(pg) => pg.parse().map_err(|_| Error::NOT_FOUND)?,
         };
 
         match path.next() {
             None => self.serve_page(req, manga, ch, pg).await,
-            Some(_) => return Err(Error::NotFound),
+            Some(_) => return Err(Error::NOT_FOUND),
         }
     }
 
     async fn serve_lib(&'static self, req: &Request<Body>) -> Result<Response, Error> {
-        if !matches!(req.method(), &Method::GET) {
-            return Err(Error::MethodNotAllowed);
-        }
-
         self.lib.json.into_response(req.headers())
     }
 
@@ -119,10 +124,6 @@ impl Shared {
         req: &Request<Body>,
         manga: &'static MangaEntry,
     ) -> Result<Response, Error> {
-        if !matches!(req.method(), &Method::GET) {
-            return Err(Error::MethodNotAllowed);
-        }
-
         manga.json.into_response(req.headers())
     }
 
@@ -131,11 +132,7 @@ impl Shared {
         req: &Request<Body>,
         manga: &'static MangaEntry,
     ) -> Result<Response, Error> {
-        if !matches!(req.method(), &Method::GET) {
-            return Err(Error::MethodNotAllowed);
-        }
-
-        let cover = manga.cover.as_ref().ok_or(Error::NotFound)?;
+        let cover = manga.cover.as_ref().ok_or(Error::NOT_FOUND)?;
 
         match cover {
             Cover::File(path) => fs::read(path)
@@ -156,23 +153,19 @@ impl Shared {
         ch: usize,
         pg: usize,
     ) -> Result<Response, Error> {
-        if !matches!(req.method(), &Method::GET) {
-            return Err(Error::MethodNotAllowed);
-        }
-
-        let ch = manga.chapters.get(ch).ok_or(Error::NotFound)?;
+        let ch = manga.chapters.get(ch).ok_or(Error::NOT_FOUND)?;
 
         match &ch.pages {
-            Pages::None => return Err(Error::NotFound),
+            Pages::None => return Err(Error::NOT_FOUND),
             Pages::Filesystem(pages) => {
-                let page = pages.get(pg).ok_or(Error::NotFound)?;
+                let page = pages.get(pg).ok_or(Error::NOT_FOUND)?;
                 let ctx = || format!("{:?}: error opening page", page);
 
                 Ok(Response::new(fs::read(page).with_context(ctx)?.into()))
             }
             #[cfg(feature = "zip")]
             Pages::Zip(path, pages) => {
-                let page = pages.get(pg).ok_or(Error::NotFound)?;
+                let page = pages.get(pg).ok_or(Error::NOT_FOUND)?;
                 let ctx = || format!("{:?}: error opening page", path);
 
                 let mut file = File::open(path).with_context(ctx)?;
@@ -191,7 +184,7 @@ impl Shared {
                         if req
                             .headers()
                             .get(ACCEPT_ENCODING)
-                            .map(|v| v.to_str().map_err(|_| Error::NotAcceptable))
+                            .map(|v| v.to_str().map_err(|_| Error::NOT_ACCEPTABLE))
                             .transpose()?
                             .map_or(false, |v| v.contains("deflate"))
                         {
@@ -217,10 +210,14 @@ impl Shared {
 
 #[derive(Debug)]
 pub enum Error {
-    NotFound,
-    MethodNotAllowed,
-    NotAcceptable,
+    StatusCode(StatusCode),
     Other(anyhow::Error),
+}
+
+impl From<StatusCode> for Error {
+    fn from(v: StatusCode) -> Self {
+        Self::StatusCode(v)
+    }
 }
 
 impl From<anyhow::Error> for Error {
@@ -230,13 +227,14 @@ impl From<anyhow::Error> for Error {
 }
 
 impl Error {
+    pub const NOT_FOUND: Self = Self::StatusCode(StatusCode::NOT_FOUND);
+    pub const NOT_ACCEPTABLE: Self = Self::StatusCode(StatusCode::NOT_ACCEPTABLE);
+
     pub fn into_response(self) -> Response<Body> {
         let mut res = Response::new(Body::empty());
 
         *res.status_mut() = match self {
-            Self::NotFound => StatusCode::NOT_FOUND,
-            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-            Self::NotAcceptable => StatusCode::NOT_ACCEPTABLE,
+            Self::StatusCode(status_code) => status_code,
             Self::Other(e) => {
                 error!("{}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -292,7 +290,7 @@ impl JsonBytes {
         }
 
         let accept_encoding = match headers.get(ACCEPT_ENCODING) {
-            Some(v) => v.to_str().map_err(|_| Error::NotAcceptable)?,
+            Some(v) => v.to_str().map_err(|_| Error::NOT_ACCEPTABLE)?,
             None => return Ok(json(self.raw.deref(), None)),
         };
 

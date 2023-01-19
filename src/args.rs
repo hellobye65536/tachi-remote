@@ -1,6 +1,5 @@
 use std::{
     io::{self, Write},
-    ops::ControlFlow,
     path::PathBuf,
 };
 
@@ -36,48 +35,47 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn parse_args() -> Result<ControlFlow<(), Self>, lexopt::Error> {
+    pub fn parse() -> Result<Option<Self>, lexopt::Error> {
         #[derive(Debug, Default)]
-        struct ArgsPartial {
+        struct Partial {
             port: Option<u16>,
             path: Option<PathBuf>,
         }
 
-        let mut args = ArgsPartial::default();
-        let mut arg_index = 0usize;
+        let mut args = Partial::default();
 
         let mut parser = Parser::from_env();
-        let mut any_args = false;
+        let mut do_help = true;
 
         while let Some(arg) = parser.next()? {
-            any_args = true;
+            do_help = false;
             match arg {
-                Arg::Value(v) => {
-                    match arg_index {
-                        0 => args.port = Some(v.parse()?),
-                        1 => args.path = Some(PathBuf::from(v)),
-                        _ => return Err(Arg::Value(v).unexpected()),
-                    }
-                    arg_index += 1;
-                }
+                Arg::Value(arg) => match &mut args {
+                    Partial { port: None, .. } => args.port = Some(arg.parse()?),
+                    Partial {
+                        port: Some(_),
+                        path: None,
+                    } => args.path = Some(PathBuf::from(arg)),
+                    _ => return Err(Arg::Value(arg).unexpected()),
+                },
                 Arg::Short('h') | Arg::Long("help") => {
-                    any_args = false;
+                    do_help = true;
                     break;
                 }
                 arg => return Err(arg.unexpected()),
             }
         }
 
-        if !any_args {
+        if do_help {
             match io::stdout().write_fmt(format_help!(
                 app_name = parser.bin_name().unwrap_or(APP_NAME),
             )) {
-                Ok(()) => return Ok(ControlFlow::Break(())),
+                Ok(()) => return Ok(None),
                 Err(e) => return Err(lexopt::Error::Custom(e.into())),
             }
         }
 
-        Ok(ControlFlow::Continue(Args {
+        Ok(Some(Args {
             port: args.port.ok_or("missing argument 'port'")?,
             path: args.path.unwrap_or_else(|| PathBuf::from(".")),
         }))

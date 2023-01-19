@@ -1,5 +1,3 @@
-use std::ops::ControlFlow;
-
 use log::error;
 
 mod args;
@@ -13,17 +11,14 @@ use server::ServerBuilder;
 fn main() {
     simple_logger::init_with_level(log::Level::Info).unwrap();
 
-    if let Err(e) = main_err() {
+    if let Err(e) = try_main() {
         error!("error: {:#}", e);
         std::process::exit(1);
     }
 }
 
-fn main_err() -> anyhow::Result<()> {
-    let Args { port, path } = match Args::parse_args()? {
-        ControlFlow::Continue(v) => v,
-        ControlFlow::Break(()) => return Ok(()),
-    };
+fn try_main() -> anyhow::Result<()> {
+    let Some(Args { port, path }) = Args::parse()? else { return Ok(()) };
 
     let lib = load_library(&[&path])?;
 
