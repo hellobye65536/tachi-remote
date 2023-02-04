@@ -39,3 +39,6 @@ hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime"] }
 [features]
 default = ["zip", "infer"]
 zip = ["rc-zip"]
+
+[profile.release]
+lto = true

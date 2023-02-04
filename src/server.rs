@@ -3,7 +3,7 @@ use std::{
     fmt::{self, Debug, Display},
     fs::{self, File},
     io::{self, Read, Seek, Write},
-    net::Ipv6Addr,
+    net::{Ipv6Addr, TcpListener},
     ops::Deref,
 };
 
@@ -53,9 +53,11 @@ impl ServerBuilder {
 async fn run_server(builder: ServerBuilder, lib: LibraryEntry) -> anyhow::Result<()> {
     let ServerBuilder { port } = builder;
 
+    let tcp = TcpListener::bind((Ipv6Addr::UNSPECIFIED, port))?;
+
     info!(
-        "hosting server at port {}, serving {} manga",
-        port,
+        "hosting server at {}, serving {} manga",
+        tcp.local_addr()?,
         lib.mangas.len()
     );
 
@@ -64,7 +66,7 @@ async fn run_server(builder: ServerBuilder, lib: LibraryEntry) -> anyhow::Result
     let make_service =
         make_service_fn(|_conn| async { Ok::<_, Infallible>(service_fn(|req| shared.serve(req))) });
 
-    hyper::Server::try_bind(&(Ipv6Addr::UNSPECIFIED, port).into())?
+    hyper::Server::from_tcp(tcp)?
         .serve(make_service)
         .with_graceful_shutdown(ctrl_c().unwrap_or_else(|_| ()))
         .await?;
@@ -268,7 +270,7 @@ impl JsonBytes {
 
         let gzip = Vec::new();
         let mut gzip = GzEncoder::new(gzip, Compression::best());
-        gzip.write_all(&raw).unwrap();
+        gzip.write_all(&raw).expect("Vec::write never fails");
         let gzip = gzip
             .finish()
             .expect("Vec::write never fails")
@@ -294,10 +296,10 @@ impl JsonBytes {
             None => return Ok(json(self.raw.deref(), None)),
         };
 
-        if self.gzip.is_some() && accept_encoding.contains("gzip") {
-            Ok(json(self.gzip.as_ref().unwrap(), Some("gzip")))
+        if let (Some(gzip), true) = (&self.gzip, accept_encoding.contains("gzip")) {
+            Ok(json(gzip, Some("gzip")))
         } else {
-            Ok(json(self.raw.deref(), None))
+            Ok(json(&self.raw, None))
         }
     }
 }
