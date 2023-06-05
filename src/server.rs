@@ -30,15 +30,11 @@ type Response<T = Body> = http::Response<T>;
 #[derive(Debug, Default)]
 pub struct ServerBuilder {
     port: u16,
-    // threads: Option<NonZeroUsize>,
 }
 
 impl ServerBuilder {
     pub fn new(port: u16) -> Self {
-        Self {
-            port,
-            ..Default::default()
-        }
+        Self { port }
     }
 
     pub fn run(self, lib: LibraryEntry) -> anyhow::Result<()> {

@@ -3,7 +3,6 @@ use std::{
     fmt::Display,
     fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
-    ops::ControlFlow,
     path::PathBuf,
 };
 
@@ -44,11 +43,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn parse_args() -> Result<ControlFlow<(), Self>, lexopt::Error> {
-        fn map_err<E: std::error::Error + Send + Sync + 'static>(e: E) -> lexopt::Error {
-            lexopt::Error::Custom(e.into())
-        }
-
+    pub fn parse_args() -> Result<Option<Self>, lexopt::Error> {
         #[derive(Debug, Default)]
         struct ArgsPartial {
             chapters: Vec<PathBuf>,
@@ -75,8 +70,8 @@ impl Args {
                         .write_fmt(format_help!(
                             app_name = parser.bin_name().unwrap_or(APP_NAME),
                         ))
-                        .map_err(map_err)?;
-                    return Ok(ControlFlow::Break(()));
+                        .map_err(|e| lexopt::Error::Custom(e.into()))?;
+                    return Ok(None);
                 }
                 Arg::Short('c') | Arg::Long("cover") => {
                     if args.cover.replace(parser.value()?.into()).is_some() {
@@ -88,7 +83,7 @@ impl Args {
             }
         }
 
-        Ok(ControlFlow::Continue(Args {
+        Ok(Some(Args {
             chapters: args.chapters,
             titles: args.titles,
             cover: args.cover,
@@ -102,7 +97,7 @@ enum ResultIterator<T, E> {
     Err(E),
 }
 
-impl<T: Iterator<Item = Result<V, E>>, E, V> Iterator for ResultIterator<T, E> {
+impl<T: Iterator<Item = Result<V, E>>, V, E> Iterator for ResultIterator<T, E> {
     type Item = Result<V, E>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -131,46 +126,57 @@ impl<T, E> From<Result<T, E>> for ResultIterator<T, E> {
 }
 
 fn main() {
-    if let Err(e) = main_err() {
+    if let Err(e) = try_main() {
         eprintln!("error: {:#}", e);
         std::process::exit(1);
     }
 }
 
-fn main_err() -> anyhow::Result<()> {
-    let Args {
+fn try_main() -> anyhow::Result<()> {
+    let Some(Args {
         chapters,
         titles,
         cover,
-    } = match Args::parse_args()? {
-        ControlFlow::Continue(v) => v,
-        ControlFlow::Break(()) => return Ok(()),
-    };
+    }) = Args::parse_args()? else { return Ok(()) };
 
     let stdout = io::stdout();
     let mut write = BufWriter::new(stdout.lock());
 
     writeln!(&mut write, "id = \"{}\"", Uuid::new_v4())?;
-    if let Some(title) = current_dir()?.file_name() {
-        if let Some(title) = title.to_str() {
-            writeln!(&mut write, "title = \"{}\"", EscapedStr(title))?;
-        } else {
-            eprintln!("warning: directory name isn't valid unicode, using placeholder");
-            writeln!(&mut write, "title = \"<title here>\"")?;
+    'title: {
+        match current_dir()
+            .as_ref()
+            .map(|v| v.file_name().map(|v| v.to_str()))
+        {
+            Ok(Some(Some(title))) => {
+                writeln!(&mut write, "title = \"{}\"", EscapedStr(title))?;
+                break 'title;
+            }
+            Ok(Some(None)) => {
+                eprintln!("warning: directory name isn't valid unicode, using placeholder")
+            }
+            Ok(None) => {
+                eprintln!("warning: couldn't get directory name, using placeholder");
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: couldn't get directory name: {}, using placeholder",
+                    e
+                );
+            }
         }
-    } else {
-        eprintln!("warning: couldn't get directory name, using placeholder");
         writeln!(&mut write, "title = \"<title here>\"")?;
     }
 
-    if let Some(cover) = cover {
-        if let Some(cover) = cover.to_str() {
-            writeln!(&mut write, "cover = \"{}\"", EscapedStr(&cover))?;
-        } else {
-            eprintln!("warning: cover path isn't valid unicode, using default");
-            write.write_all("cover = { ch = 0, pg = 0 }\n".as_bytes())?;
+    'cover: {
+        match cover.as_ref().map(|v| v.to_str()) {
+            Some(Some(cover)) => {
+                writeln!(&mut write, "cover = \"{}\"", EscapedStr(&cover))?;
+                break 'cover;
+            }
+            Some(None) => eprintln!("warning: cover path isn't valid unicode, using default"),
+            None => (),
         }
-    } else {
         write.write_all("cover = { ch = 0, pg = 0 }\n".as_bytes())?;
     }
 
@@ -202,9 +208,8 @@ fn main_err() -> anyhow::Result<()> {
             )?;
         } else {
             eprintln!(
-                "warning: {app_name} does not support non-unicode chapter paths, skipping: {:?}",
-                ch,
-                app_name = APP_NAME,
+                "warning: non-unicode chapter paths are not supported, skipping: {:?}",
+                ch
             );
         }
     }

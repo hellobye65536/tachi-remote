@@ -98,7 +98,8 @@ fn load_manga<'a>(
         let mut manga: Manga = toml::from_slice(read_buf)?;
 
         for (i, ch) in manga.chapters.iter_mut().enumerate() {
-            load_chapter(&path, ch, i)?;
+            ch.pages = load_chapter(path.join(&ch.path))
+                .with_context(|| format!("{:?} (#{})", ch.path, i))?;
         }
 
         if let Some(Cover::File(cover)) = &mut manga.cover {
@@ -110,18 +111,12 @@ fn load_manga<'a>(
     })())
 }
 
-fn load_chapter(manga_path: &Path, ch: &mut Chapter, i: usize) -> anyhow::Result<()> {
-    let path = manga_path.join(&ch.path);
-
-    let pages = if path.is_dir() {
+fn load_chapter(path: PathBuf) -> anyhow::Result<Pages> {
+    if path.is_dir() {
         load_pages_dir(path)
     } else {
         load_pages_file(path)
-    };
-
-    ch.pages = pages.with_context(|| format!("{:?} (#{})", ch.path, i))?;
-
-    Ok(())
+    }
 }
 
 fn load_pages_dir(path: PathBuf) -> anyhow::Result<Pages> {
@@ -182,15 +177,15 @@ fn load_pages_zip(path: PathBuf, file: File) -> anyhow::Result<Pages> {
     let zip = file.read_zip()?;
     let mut entries = zip
         .entries()
-        .into_iter()
+        .iter()
         .filter(|entry| matches!(entry.contents(), EntryContents::File(..)))
         .map(|entry| {
             let mut buf = [0; 4];
             let sz = file.read_at(entry.header_offset + 26, &mut buf)?;
             anyhow::ensure!(sz == 4, "read less than 4 bytes from zip");
 
-            let name_len = u16::from_le_bytes(buf[0..2].try_into().expect("unreachable"));
-            let extra_len = u16::from_le_bytes(buf[2..4].try_into().expect("unreachable"));
+            let name_len = u16::from_le_bytes([buf[0], buf[1]]);
+            let extra_len = u16::from_le_bytes([buf[2], buf[3]]);
 
             Ok((
                 entry.name(),
