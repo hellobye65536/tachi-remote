@@ -11,27 +11,27 @@ authors = ["hb16"]
 
 [dependencies]
 anyhow = "1.0"
-lexopt = "0.2"
+lexopt = "0.3"
 
-walkdir = "2.3"
+walkdir = "2.0"
 bstr = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.5"
 serde_json = "1.0"
 
-infer = { version = "0.9", optional = true }
-rc-zip = { version = "0.0.1", optional = true }
-positioned-io = "0.2.2"
+infer = { version = "0.13", optional = true }
+rc-zip = { version = "2.0", optional = true, features = ["file", "sync"], default-features = false }
+positioned-io = "0.3"
 
 log = "0.4"
-simple_logger = "2.3"
+simple_logger = "4.0"
 
 futures = "0.3"
-tokio = { version = "1.20", features = ["parking_lot", "rt", "net", "signal"] } # rt-multi-thread
+tokio = { version = "1.0", features = ["parking_lot", "rt", "net", "signal"] } # rt-multi-thread
 
-flate2 = "1.0.24"
+flate2 = "1.0"
 
-bytes = "1.2.1"
+bytes = "1.0"
 http = "0.2"
 tower = "0.4"
 hyper = { version = "0.14", features = ["http1", "http2", "server", "runtime"] }

@@ -1,3 +1,5 @@
+#![warn(clippy::all)]
+
 use log::error;
 
 mod args;

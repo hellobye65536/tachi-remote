@@ -114,7 +114,7 @@ impl Shared {
     }
 
     async fn serve_lib(&'static self, req: &Request<Body>) -> Result<Response, Error> {
-        self.lib.json.into_response(req.headers())
+        self.lib.json.to_response(req.headers())
     }
 
     async fn serve_manga(
@@ -122,7 +122,7 @@ impl Shared {
         req: &Request<Body>,
         manga: &'static MangaEntry,
     ) -> Result<Response, Error> {
-        manga.json.into_response(req.headers())
+        manga.json.to_response(req.headers())
     }
 
     async fn serve_cover(
@@ -154,7 +154,7 @@ impl Shared {
         let ch = manga.chapters.get(ch).ok_or(Error::NOT_FOUND)?;
 
         match &ch.pages {
-            Pages::None => return Err(Error::NOT_FOUND),
+            Pages::None => Err(Error::NOT_FOUND),
             Pages::Filesystem(pages) => {
                 let page = pages.get(pg).ok_or(Error::NOT_FOUND)?;
                 let ctx = || format!("{:?}: error opening page", page);
@@ -276,7 +276,7 @@ impl JsonBytes {
         Self { raw, gzip }
     }
 
-    pub fn into_response(&'static self, headers: &HeaderMap) -> Result<Response, Error> {
+    pub fn to_response(&'static self, headers: &HeaderMap) -> Result<Response, Error> {
         fn json(v: &'static [u8], enc: Option<&'static str>) -> Response {
             let mut res = Response::new(v.into());
             let headers = res.headers_mut();

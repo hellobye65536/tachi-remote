@@ -171,14 +171,16 @@ fn load_pages_file(path: PathBuf) -> anyhow::Result<Pages> {
 
 #[cfg(feature = "zip")]
 fn load_pages_zip(path: PathBuf, file: File) -> anyhow::Result<Pages> {
-    use positioned_io::ReadAt;
-    use rc_zip::{EntryContents, ReadZip};
+    use std::ops::Deref;
 
-    let zip = file.read_zip()?;
+    use positioned_io::ReadAt;
+    use rc_zip::{reader::sync::ReadZip, EntryContents};
+
+    let zip = ReadZip::read_zip(&file)?;
     let mut entries = zip
+        .deref()
         .entries()
-        .iter()
-        .filter(|entry| matches!(entry.contents(), EntryContents::File(..)))
+        .filter(|entry| matches!(entry.contents(), EntryContents::File))
         .map(|entry| {
             let mut buf = [0; 4];
             let sz = file.read_at(entry.header_offset + 26, &mut buf)?;
