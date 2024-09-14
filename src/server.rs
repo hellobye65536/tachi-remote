@@ -109,7 +109,7 @@ impl Shared {
 
         match path.next() {
             None => self.serve_page(req, manga, ch, pg).await,
-            Some(_) => return Err(Error::NOT_FOUND),
+            Some(_) => Err(Error::NOT_FOUND),
         }
     }
 
